@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+.DS_Store
+*.zip
+kubeconfig*
+.env
+notes/
+.zip
+ASSIGNMENT - DevOps.md
