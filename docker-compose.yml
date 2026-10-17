@@ -1,0 +1,27 @@
+# `docker compose up -d` brings up everything:
+#   toolbox container -> (via the host Docker socket) k3d cluster "elsa":
+#   1 k3s server + 4 agents, labelled/tainted by troubleshoot/prepare.sh.
+# The k3d nodes are sibling containers on the host Docker daemon, not compose
+# services; `./scripts/99-teardown.sh` removes them.
+name: elsa-devops
+
+services:
+  toolbox:
+    build: ./toolbox
+    image: elsa-toolbox:local
+    init: true                       # PID 1 that forwards signals: fast `compose down`
+    environment:
+      ELSA_TOOLBOX: "1"
+      CLUSTER_NAME: elsa
+      HTTP_PORT: ${HTTP_PORT:-8080}  # host port for the ingress (http://localhost:8080)
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock   # k3d drives the host Docker daemon
+      - ./:/workspace                               # repo (incl. ./scripts) bind-mounted
+    working_dir: /workspace
+    command: ["bash", "-c", "bash /workspace/scripts/00-bootstrap-cluster.sh; exec sleep infinity"]
+    healthcheck:
+      test: ["CMD", "grep", "-qx", "ok", "/tmp/bootstrap.status"]
+      interval: 5s
+      timeout: 3s
+      start_period: 10s
+      retries: 120

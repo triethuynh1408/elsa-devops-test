@@ -1,0 +1,12 @@
+# Minimal ArgoCD for a laptop cluster: no SSO (dex), no notifications.
+dex:
+  enabled: false
+notifications:
+  enabled: false
+configs:
+  params:
+    # TLS terminates at the ingress in a real setup; here we only port-forward.
+    server.insecure: true
+  cm:
+    # Poll Git every 60s (default 180s) so a pushed change shows up quickly.
+    timeout.reconciliation: 60s

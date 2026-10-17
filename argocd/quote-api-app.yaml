@@ -1,0 +1,28 @@
+# ArgoCD Application: the Helm chart in this repo IS the desired state.
+# To release: change charts/quote-api/values.yaml (image.tag), commit, push.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: quote-api
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io   # deleting the App deletes its resources
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/triethuynh1408/elsa-devops-test.git
+    targetRevision: main
+    path: charts/quote-api
+    helm:
+      releaseName: quote-api
+      valueFiles:
+        - values.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: quote
+  syncPolicy:
+    automated:
+      prune: true      # resources removed from Git are removed from the cluster
+      selfHeal: true   # manual kubectl edits are reverted to what Git says
+    syncOptions:
+      - CreateNamespace=true

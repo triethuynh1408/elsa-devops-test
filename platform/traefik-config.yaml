@@ -1,0 +1,22 @@
+# Overrides for the Traefik ingress controller bundled with k3s.
+# One replica = single point of failure: if it sits on a reclaimed spot node,
+# every app behind the ingress blips. Two replicas, spread, behind a PDB.
+apiVersion: helm.cattle.io/v1
+kind: HelmChartConfig
+metadata:
+  name: traefik
+  namespace: kube-system
+spec:
+  valuesContent: |-
+    deployment:
+      replicas: 2
+    podDisruptionBudget:
+      enabled: true
+      maxUnavailable: 1
+    topologySpreadConstraints:
+      - maxSkew: 1
+        topologyKey: kubernetes.io/hostname
+        whenUnsatisfiable: ScheduleAnyway
+        labelSelector:
+          matchLabels:
+            app.kubernetes.io/name: traefik

@@ -1,0 +1,119 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quote-api.name" . }}
+  labels:
+    {{- include "quote-api.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  revisionHistoryLimit: 5
+  strategy:
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      {{- include "quote-api.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "quote-api.labels" . | nindent 8 }}
+    spec:
+      automountServiceAccountToken: false   # the app never talks to the K8s API
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      affinity:
+        nodeAffinity:
+          # Hard: only the spot / on-demand pools (never the GPU or control-plane node).
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: {{ .Values.placement.capacityLabel }}
+                    operator: In
+                    values: ["spot", "on-demand"]
+          # Soft: prefer spot (cheaper).
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: {{ .Values.placement.spotWeight }}
+              preference:
+                matchExpressions:
+                  - key: {{ .Values.placement.capacityLabel }}
+                    operator: In
+                    values: ["spot"]
+      topologySpreadConstraints:
+        # HARD spread across capacity types: spot may hold at most `capacityMaxSkew`
+        # more replicas than on-demand, which forces at least one replica onto
+        # on-demand. nodeTaintsPolicy=Honor: cordoned/drained nodes don't count,
+        # so if every spot node is reclaimed the spot domain simply disappears and
+        # all replicas can fall back to on-demand instead of going Pending.
+        - maxSkew: {{ .Values.placement.capacityMaxSkew }}
+          topologyKey: {{ .Values.placement.capacityLabel }}
+          whenUnsatisfiable: DoNotSchedule
+          nodeTaintsPolicy: Honor
+          labelSelector:
+            matchLabels:
+              {{- include "quote-api.selectorLabels" . | nindent 14 }}
+          # Count only pods of the same ReplicaSet, so each rollout spreads
+          # correctly on its own instead of counting old pods that are about to go away.
+          matchLabelKeys: ["pod-template-hash"]
+        # SOFT spread across nodes. With DoNotSchedule here, draining one spot node
+        # would leave pods Pending (skew vs. the now-empty node); ScheduleAnyway
+        # spreads when it can and still reschedules when it can't.
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              {{- include "quote-api.selectorLabels" . | nindent 14 }}
+          matchLabelKeys: ["pod-template-hash"]
+      containers:
+        - name: quote-api
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: CPU_WORK_SECONDS
+              value: {{ .Values.app.cpuWorkSeconds | quote }}
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            periodSeconds: 5
+            failureThreshold: 2
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 3
+          lifecycle:
+            preStop:
+              # Keep serving for a few seconds after termination starts, while
+              # ingress/kube-proxy remove this pod from their endpoint lists.
+              sleep:
+                seconds: 5
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 16Mi

@@ -1,0 +1,12 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "quote-api.name" . }}
+  labels:
+    {{- include "quote-api.labels" . | nindent 4 }}
+spec:
+  # Drains (spot reclaim, node upgrades) evict at most one replica at a time.
+  maxUnavailable: {{ .Values.pdb.maxUnavailable }}
+  selector:
+    matchLabels:
+      {{- include "quote-api.selectorLabels" . | nindent 6 }}

@@ -1,0 +1,27 @@
+# k3d cluster: 1 server (control plane, no workloads) + 4 agents (worker nodepools).
+# The ingress port is added on the CLI (--port) so it can be overridden with HTTP_PORT.
+apiVersion: k3d.io/v1alpha5
+kind: Simple
+metadata:
+  name: elsa
+servers: 1
+agents: 4
+image: rancher/k3s:v1.36.5-k3s1
+kubeAPI:
+  hostIP: "127.0.0.1"   # API only reachable from this machine
+  hostPort: "6550"
+options:
+  k3d:
+    wait: true
+    timeout: "300s"
+  k3s:
+    extraArgs:
+      # The toolbox talks to the API through the k3d load balancer by name.
+      - arg: --tls-san=k3d-elsa-serverlb
+        nodeFilters: ["server:*"]
+      # Like a managed control plane: keep app workloads off the server node.
+      - arg: --node-taint=node-role.kubernetes.io/control-plane=true:NoSchedule
+        nodeFilters: ["server:*"]
+  kubeconfig:
+    updateDefaultKubeconfig: false
+    switchCurrentContext: false
