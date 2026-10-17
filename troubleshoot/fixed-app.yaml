@@ -1,0 +1,199 @@
+# Part 3 - fixed version of broken-app.yaml.
+# Every change is marked "FIX #n" and explained in TROUBLESHOOTING.md.
+# Node labels/taints untouched; default-deny kept, plus least-privilege allows.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: troubleshoot
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: web-config
+  namespace: troubleshoot
+data:
+  index.html: |
+    <html><body><h1>TROUBLESHOOT-OK</h1></body></html>
+---
+# Unchanged: deny all ingress + egress for every pod in the namespace.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  namespace: troubleshoot
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+---
+# FIX #8a: the smoke client may resolve names via CoreDNS - nothing else in kube-system.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-smoke-client-dns
+  namespace: troubleshoot
+spec:
+  podSelector:
+    matchLabels:
+      app: smoke-client
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:              # same list item = AND (CoreDNS pods in kube-system)
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+---
+# FIX #8b: the smoke client may call the web pods on port 80 only.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-smoke-client-to-web
+  namespace: troubleshoot
+spec:
+  podSelector:
+    matchLabels:
+      app: smoke-client
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: web
+      ports:
+        - protocol: TCP
+          port: 80
+---
+# FIX #8c: the web pods accept port 80 from the smoke client only.
+# (Both sides need a rule: egress on the client AND ingress on the server.)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-web-from-smoke-client
+  namespace: troubleshoot
+spec:
+  podSelector:
+    matchLabels:
+      app: web
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: smoke-client
+      ports:
+        - protocol: TCP
+          port: 80
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+  namespace: troubleshoot
+  labels:
+    app: web
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: web
+  template:
+    metadata:
+      labels:
+        app: web
+    spec:
+      containers:
+        - name: nginx
+          image: nginx:1.25.5               # FIX #4: 1.25.99 does not exist; 1.25.5 is the last 1.25 patch
+          ports:
+            - name: http
+              containerPort: 80
+          resources:
+            requests:
+              cpu: 100m
+              memory: 32Mi                  # FIX #1: was 16Gi - more than any node can allocate (~7.6Gi)
+            limits:
+              cpu: 500m
+              memory: 128Mi                 # FIX #1: was 16Gi
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http                    # FIX #5: was 8080; nginx listens on 80
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http                    # FIX #5: was 8080
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          volumeMounts:
+            - name: html
+              mountPath: /usr/share/nginx/html
+      volumes:
+        - name: html
+          configMap:
+            name: web-config                # FIX #3: was "web-conf" (no such ConfigMap)
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: web-svc
+  namespace: troubleshoot
+spec:
+  selector:
+    app: web                                # FIX #6: was "webapp" - matched no pods
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: http                      # FIX #7: was 8080; named port follows the container
+---
+# Simulated AI inference workload. In production this runs on our GPU
+# nodepool. It must end up Running on the GPU-labeled node - without
+# touching the node's taint or labels.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ai-inference
+  namespace: troubleshoot
+  labels:
+    app: ai-inference
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ai-inference
+  template:
+    metadata:
+      labels:
+        app: ai-inference
+    spec:
+      nodeSelector:
+        acme.io/node-type: gpu              # FIX #2a: was "node-type: gpu" - no node has that label
+      tolerations:                          # FIX #2b: allow scheduling onto the tainted GPU node
+        - key: nvidia.com/gpu
+          operator: Exists
+          effect: NoSchedule
+      containers:
+        - name: inference
+          image: busybox:1.36
+          command: ["sh", "-c", "echo 'inference engine warm'; while true; do sleep 3600; done"]
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 128Mi
