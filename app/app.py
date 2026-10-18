@@ -113,4 +113,5 @@ def quote():
 
 if __name__ == "__main__":
     # Local dev only; the container runs gunicorn (see Dockerfile).
-    app.run(host="0.0.0.0", port=int(os.getenv("PORT", "8080")))
+    # Loopback by default so the dev server is never exposed on the network.
+    app.run(host=os.getenv("HOST", "127.0.0.1"), port=int(os.getenv("PORT", "8080")))
