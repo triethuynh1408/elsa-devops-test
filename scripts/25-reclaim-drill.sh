@@ -44,8 +44,9 @@ pods_with_capacity
 
 log "Starting traffic: curl ${INGRESS_URL}/api/quote every 0.2s"
 ( while true; do
-    code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 3 "${INGRESS_URL}/api/quote" || true)
-    echo "$(date +%T) $code"
+    # HTTP code plus curl's error text (e.g. "Connection reset by peer") for diagnosis.
+    result=$(curl -s -o /dev/null -w '%{http_code} %{errormsg}' --max-time 3 "${INGRESS_URL}/api/quote" || true)
+    echo "$(date +%T) $result"
     sleep 0.2
   done ) > "$WORK/curl.log" &
 CURL_PID=$!
@@ -73,10 +74,10 @@ log "After: placement with $NODE cordoned"
 pods_with_capacity
 
 TOTAL=$(wc -l < "$WORK/curl.log" | tr -d ' ')
-OK=$(grep -c ' 200$' "$WORK/curl.log" || true)
+OK=$(awk '$2 == "200"' "$WORK/curl.log" | wc -l | tr -d ' ')
 FAILED=$((TOTAL - OK))
 log "Traffic during the drill: ${TOTAL} requests, ${OK} OK, ${FAILED} failed"
-[ "$FAILED" -eq 0 ] || grep -v ' 200$' "$WORK/curl.log" | head -20
+[ "$FAILED" -eq 0 ] || awk '$2 != "200"' "$WORK/curl.log" | head -20
 
 log "Uncordoning $NODE"
 kubectl uncordon "$NODE"

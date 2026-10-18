@@ -47,6 +47,14 @@ sh /workspace/troubleshoot/prepare.sh
 
 log "Ingress controller: 2 Traefik replicas + PDB so a spot drain can't take ingress down"
 kubectl apply -f /workspace/platform/traefik-config.yaml
+# k3s applies the HelmChartConfig asynchronously (helm-install job). Wait until
+# Traefik actually runs with it, so a drain right after bootstrap is safe.
+for _ in $(seq 1 100); do
+  kubectl -n kube-system get deploy traefik -o jsonpath='{.spec.replicas} {.spec.template.spec.containers[0].args}' 2>/dev/null \
+    | grep -q '^2 .*requestAcceptGraceTimeout' && break
+  sleep 3
+done
+kubectl -n kube-system rollout status deploy/traefik --timeout=180s
 
 echo ok > "$BOOTSTRAP_STATUS"
 log "Bootstrap complete"

@@ -13,6 +13,14 @@ spec:
     podDisruptionBudget:
       enabled: true
       maxUnavailable: 1
+    # Same idea as the app's preStop sleep: after SIGTERM keep accepting new
+    # connections for 10s while kube-proxy on every node drops this pod from
+    # the Service. Without it, the k3d load balancer (max_fails=1,
+    # fail_timeout=10s) marks every node down after a few refused connections
+    # and the whole ingress is unreachable for ~10s on each drain.
+    additionalArguments:
+      - "--entryPoints.web.transport.lifeCycle.requestAcceptGraceTimeout=10s"
+      - "--entryPoints.websecure.transport.lifeCycle.requestAcceptGraceTimeout=10s"
     topologySpreadConstraints:
       - maxSkew: 1
         topologyKey: kubernetes.io/hostname
