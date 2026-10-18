@@ -1,0 +1,51 @@
+# How an inference workload opts in to the GPU NodePools, and protects in-flight
+# requests from voluntary disruption. Illustrative - not deployed locally.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: inference
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: inference
+  template:
+    metadata:
+      labels:
+        app: inference
+      annotations:
+        # Karpenter won't voluntarily disrupt (consolidate/drift) a node running this
+        # pod, up to the NodePool's terminationGracePeriod. Spot interruptions still
+        # happen - hence >= 2 replicas spread across zones.
+        karpenter.sh/do-not-disrupt: "true"
+    spec:
+      nodeSelector:
+        acme.io/node-type: gpu
+      tolerations:
+        - key: nvidia.com/gpu
+          operator: Exists
+          effect: NoSchedule
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: inference
+      # Spot gives a 2-minute notice: stop taking new requests, finish in-flight ones.
+      terminationGracePeriodSeconds: 110
+      containers:
+        - name: model-server
+          image: ghcr.io/example/model-server:1.0.0
+          resources:
+            requests:
+              cpu: "4"
+              memory: 16Gi
+              nvidia.com/gpu: "1"
+            limits:
+              memory: 16Gi
+              nvidia.com/gpu: "1"
+          lifecycle:
+            preStop:
+              sleep:
+                seconds: 10

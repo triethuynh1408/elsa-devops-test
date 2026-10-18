@@ -1,0 +1,42 @@
+# Part 5a - Karpenter (v1.15, API karpenter.k8s.aws/v1): node class for GPU inference nodes.
+apiVersion: karpenter.k8s.aws/v1
+kind: EC2NodeClass
+metadata:
+  name: gpu
+spec:
+  # Bottlerocket: Karpenter picks the NVIDIA variant automatically for GPU
+  # instance types (driver + NVIDIA device plugin are part of the OS image).
+  # `latest` keeps this example generic; in production pin a tested release
+  # (e.g. bottlerocket@v1.x.y) and roll it forward by PR - every AMI change
+  # makes nodes "drift", and the NodePool budgets control when they rotate.
+  amiSelectorTerms:
+    - alias: bottlerocket@latest
+  role: KarpenterNodeRole-prod-eks
+  subnetSelectorTerms:
+    - tags:
+        karpenter.sh/discovery: prod-eks      # private subnets only
+  securityGroupSelectorTerms:
+    - tags:
+        karpenter.sh/discovery: prod-eks
+  blockDeviceMappings:
+    # Bottlerocket: small OS volume + a data volume for container images.
+    # Inference images with model weights are large (10-30 GB); room for a few.
+    - deviceName: /dev/xvda
+      ebs:
+        volumeSize: 8Gi
+        volumeType: gp3
+        encrypted: true
+    - deviceName: /dev/xvdb
+      ebs:
+        volumeSize: 200Gi
+        volumeType: gp3
+        iops: 6000          # faster image pulls -> faster cold start on a new GPU node
+        throughput: 500
+        encrypted: true
+        deleteOnTermination: true
+  metadataOptions:
+    httpTokens: required          # IMDSv2 only
+    httpPutResponseHopLimit: 1    # pods can't reach node IMDS credentials
+  tags:
+    team: ai-platform
+    cost-center: inference

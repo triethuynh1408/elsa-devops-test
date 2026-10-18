@@ -1,8 +1,10 @@
+# shellcheck shell=bash
 # Shared helpers, sourced by every numbered script.
 
 CLUSTER_NAME="${CLUSTER_NAME:-elsa}"
 HTTP_PORT="${HTTP_PORT:-8080}"
 # Inside the k3d network the ingress is reachable via the load balancer container.
+# shellcheck disable=SC2034  # used by the scripts that source this file
 INGRESS_URL="http://k3d-${CLUSTER_NAME}-serverlb"
 BOOTSTRAP_STATUS=/tmp/bootstrap.status
 

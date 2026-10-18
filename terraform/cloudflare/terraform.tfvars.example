@@ -1,0 +1,7 @@
+# Copy to terraform.tfvars (gitignored). IDs are not secrets; the API token is
+# NOT a variable - export CLOUDFLARE_API_TOKEN instead.
+zone_id            = "023e105f4ecef8ad9ca31a8372d0c353"
+zone_name          = "example.com"
+origin_hostname    = "k8s-prod-ingress-1234567890.ap-southeast-1.elb.amazonaws.com"
+status_record_id   = "372e67954025e0ba6aaa6d586b9e0b59"
+status_page_target = "stats.uptimeprovider.example"

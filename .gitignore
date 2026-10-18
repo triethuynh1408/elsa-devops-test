@@ -7,7 +7,12 @@ __pycache__/
 kubeconfig*
 .env
 notes/
-.zip
 ASSIGNMENT - DevOps.md
-# Draft until all parts are done - remove the README.md line before the final commit
-README.md
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+

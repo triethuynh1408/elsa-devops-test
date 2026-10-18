@@ -1,0 +1,131 @@
+# Part 5a - Karpenter (v1.15, API karpenter.sh/v1): GPU nodepools for inference.
+#
+# Spot preferred, on-demand fallback, via two NodePools with weights:
+# Karpenter tries the highest-weight NodePool that can fit the pending pods.
+# If spot GPU capacity is unavailable (insufficient capacity), those offerings
+# are marked unavailable and the next round falls back to on-demand.
+# Two pools instead of one pool with both capacity types: each capacity type
+# gets its own spend cap (limits) and its own disruption rules.
+#
+# Workloads opt in with the toleration + nodeSelector shown in
+# example-inference-deployment.yaml (same taint/label as Part 3).
+---
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: gpu-spot
+spec:
+  weight: 100                       # preferred
+  template:
+    metadata:
+      labels:
+        acme.io/node-type: gpu
+    spec:
+      nodeClassRef:
+        group: karpenter.k8s.aws
+        kind: EC2NodeClass
+        name: gpu
+      taints:
+        - key: nvidia.com/gpu
+          value: "true"
+          effect: NoSchedule        # only pods that tolerate GPU land here
+      requirements:
+        - key: karpenter.sh/capacity-type
+          operator: In
+          values: ["spot"]
+        # Several inference-class GPU families: more spot pools -> fewer interruptions
+        # and better availability (Karpenter uses price-capacity-optimized for spot).
+        - key: karpenter.k8s.aws/instance-family
+          operator: In
+          values: ["g5", "g6", "g6e"]
+        - key: karpenter.k8s.aws/instance-gpu-manufacturer
+          operator: In
+          values: ["nvidia"]
+        - key: karpenter.k8s.aws/instance-gpu-count
+          operator: In
+          values: ["1", "2", "4"]   # no 8-GPU boxes for a per-request inference service
+        - key: kubernetes.io/arch
+          operator: In
+          values: ["amd64"]
+        - key: topology.kubernetes.io/zone
+          operator: In
+          values: ["ap-southeast-1a", "ap-southeast-1b", "ap-southeast-1c"]
+      # Long-running inference must not be cut mid-request by voluntary disruption:
+      # pods use karpenter.sh/do-not-disrupt + a graceful shutdown. This caps how long
+      # such pods may hold a node that is being replaced (drift/expiry) before eviction
+      # is forced - long enough to finish any request, short enough to keep patching.
+      terminationGracePeriod: 1h
+      expireAfter: 720h             # rotate nodes monthly; AMI patches arrive via drift
+  disruption:
+    # Only remove nodes that are completely empty. No "underutilized" consolidation:
+    # moving a model-serving pod means a cold start (image pull + loading weights to
+    # GPU memory) and aborted in-flight requests, which costs more than a half-used node.
+    consolidationPolicy: WhenEmpty
+    consolidateAfter: 15m           # don't churn GPU nodes on short traffic dips
+    budgets:
+      - nodes: "1"                  # never disrupt more than one GPU node at a time
+      - nodes: "0"                  # no drift/expiry rotations during peak hours
+        reasons: ["Drifted"]
+        schedule: "0 1 * * *"       # 01:00 UTC = 09:00 SGT
+        duration: 14h
+  limits:
+    nvidia.com/gpu: 16              # spend cap for the spot pool
+    cpu: "256"
+    memory: 1024Gi
+---
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: gpu-on-demand
+spec:
+  weight: 10                        # fallback only
+  template:
+    metadata:
+      labels:
+        acme.io/node-type: gpu
+    spec:
+      nodeClassRef:
+        group: karpenter.k8s.aws
+        kind: EC2NodeClass
+        name: gpu
+      taints:
+        - key: nvidia.com/gpu
+          value: "true"
+          effect: NoSchedule
+      requirements:
+        - key: karpenter.sh/capacity-type
+          operator: In
+          values: ["on-demand"]
+        - key: karpenter.k8s.aws/instance-family
+          operator: In
+          values: ["g5", "g6", "g6e"]
+        - key: karpenter.k8s.aws/instance-gpu-manufacturer
+          operator: In
+          values: ["nvidia"]
+        - key: karpenter.k8s.aws/instance-gpu-count
+          operator: In
+          values: ["1", "2", "4"]
+        - key: kubernetes.io/arch
+          operator: In
+          values: ["amd64"]
+        - key: topology.kubernetes.io/zone
+          operator: In
+          values: ["ap-southeast-1a", "ap-southeast-1b", "ap-southeast-1c"]
+      terminationGracePeriod: 1h
+      expireAfter: 720h
+  disruption:
+    # Same safety rules. Note: once spot capacity returns, these on-demand nodes are
+    # not swapped back to spot automatically (WhenEmpty) - they drain naturally as
+    # the workload scales down, which is the safe trade-off for inference.
+    consolidationPolicy: WhenEmpty
+    consolidateAfter: 15m
+    budgets:
+      - nodes: "1"
+      - nodes: "0"
+        reasons: ["Drifted"]
+        schedule: "0 1 * * *"
+        duration: 14h
+  limits:
+    nvidia.com/gpu: 8               # tighter cap: on-demand GPUs are ~3x the spot price
+    cpu: "128"
+    memory: 512Gi

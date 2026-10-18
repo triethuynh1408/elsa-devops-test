@@ -9,7 +9,8 @@
 | 1. Service & image | Proposed Python (easiest to explain) and wrote `app.py`, the Dockerfile and the build script; tested them locally | Created the repo, built and pushed the image, made the GHCR package public |
 | 2. Cluster & GitOps | Designed the compose → k3d harness, Helm chart, placement rules and drill; looked up current versions | Ran the golden path from scratch (this is how the drill bug below was found); asked for the reasoning behind placement, ingress and the run-all flow |
 | 3. Troubleshooting | Diagnosed live, one layer at a time; wrote `fixed-app.yaml` and `TROUBLESHOOTING.md` | Reviewed the write-up and the fixes |
-| 4. CI/CD | Wrote the workflow and `MIGRATION-NOTES.md`; ran Semgrep, Trivy and actionlint locally first | Chose Part 4 among Parts 4–6; granted the package's Actions access; pushed; watched the run, the bot's tag commit and the ArgoCD rollout |
+| 4. CI/CD | Wrote the workflow and `MIGRATION-NOTES.md`; ran Semgrep, Trivy and actionlint locally first | Chose Parts 4 and 5 and skipped Part 6; granted the package's Actions access; pushed; watched the run, the bot's tag commit and the ArgoCD rollout |
+| 5. IaC | Looked up the current Karpenter release (v1.15) and Cloudflare provider (v5.28); wrote the manifests and Terraform against the schemas read from those releases; built the validation scripts | Reviewed the GPU disruption trade-offs |
 | 7. Ops answers | Drafted the answers within the 1.5-page limit | Reviewed them |
 
 From the start I asked for every step to come with an explanation I could defend in an interview. The AI's working rule, which I kept: no version from memory (look it up live), and nothing is "done" without a command output proving it.
@@ -80,6 +81,11 @@ From the start I asked for every step to come with an explanation I could defend
   - cosign rejects the unsigned image;
   - Semgrep fails on bad code;
   - draining **both** spot nodes falls back to on-demand instead of Pending.
+- **Guarding against outdated APIs (the trap the brief warns about).** Model memory defaults to older forms, so Part 5 is validated against the real thing and the old forms are proven to fail:
+  - Karpenter `karpenter.sh/v1beta1` → `no matches for kind`;
+  - Karpenter `WhenUnderutilized` → `Unsupported value`;
+  - Cloudflare v4's `cloudflare_record` → `Invalid resource type`;
+  - Cloudflare v4's `rules { }` blocks → `Unsupported block type`.
 - **Live, layer-by-layer diagnosis** in Part 3 (patch, observe the next failure), rather than fixing everything from reading YAML.
 - **The reviewer's path, from scratch:** `99-teardown` → `docker compose up -d` → `./scripts/run-all.sh`. It was run again after every significant change.
 
