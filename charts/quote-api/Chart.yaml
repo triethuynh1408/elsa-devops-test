@@ -3,4 +3,4 @@ name: quote-api
 description: Random motivational quotes over HTTP (ELSA DevOps take-home)
 type: application
 version: 0.1.0
-appVersion: "ccaabb7"
+appVersion: "50e1f14"

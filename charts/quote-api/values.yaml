@@ -2,7 +2,7 @@ image:
   repository: ghcr.io/triethuynh1408/quote-api
   # Immutable git-SHA tag. Changing this line in Git is how a release happens:
   # ArgoCD sees the commit and rolls it out.
-  tag: ccaabb7
+  tag: 50e1f14
   pullPolicy: IfNotPresent
 
 # Only used when autoscaling is disabled; with HPA the Deployment has no
